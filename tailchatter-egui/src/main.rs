@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod server;
+
 use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
@@ -40,6 +42,13 @@ pub enum ChatMode {
     Chat,
 }
 
+#[derive(PartialEq, Clone, Copy, Default)]
+pub enum LoginTab {
+    #[default]
+    Connect,
+    Server,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct PersistedState {
     nick: String,
@@ -47,14 +56,18 @@ struct PersistedState {
     server_port: u16,
     was_logged_out: bool,
     messages: Vec<(String, String, String)>,
+    server_started: bool,
 }
 
 pub struct ChatApp {
     mode: ChatMode,
+    login_tab: LoginTab,
     nick: String,
     server_ip: String,
     server_port: u16,
-    start_server: bool,
+    local_server_port: u16,
+    server_started: bool,
+    reconnect_to_local: bool,
     messages: Vec<(String, String, String)>,
     online_users: Vec<String>,
     room_name: String,
@@ -71,10 +84,13 @@ impl Default for ChatApp {
     fn default() -> Self {
         Self {
             mode: ChatMode::Login,
+            login_tab: LoginTab::Connect,
             nick: String::new(),
             server_ip: String::new(),
             server_port: DEFAULT_PORT,
-            start_server: false,
+            local_server_port: DEFAULT_PORT,
+            server_started: false,
+            reconnect_to_local: false,
             messages: Vec::new(),
             online_users: Vec::new(),
             room_name: String::from("Chat Room"),
@@ -107,7 +123,7 @@ impl eframe::App for ChatApp {
                 // Check for "Online (X):" format BEFORE splitting
                 let is_online_list = msg.starts_with("Online");
                 let is_join_leave = msg.contains(" has joined") || msg.contains(" has left");
-                
+
                 let (from, body) = if msg.contains(": ") && !is_online_list {
                     let parts: Vec<&str> = msg.splitn(2, ": ").collect();
                     if parts.len() == 2 {
@@ -133,7 +149,9 @@ impl eframe::App for ChatApp {
                     }
                 } else if body.contains("Enter your handle") {
                     // Skip - login screen handles this
-                } else if from == self.nick && (body.contains("has joined") || body.contains("has left")) {
+                } else if from == self.nick
+                    && (body.contains("has joined") || body.contains("has left"))
+                {
                     // Don't show self joining/leaving
                 } else if is_join_leave {
                     // Skip join/leave messages
@@ -154,68 +172,65 @@ impl ChatApp {
     fn login_ui(&mut self, ui: &mut egui::Ui, theme: &Theme) {
         let input_bg = egui::Color32::from_rgb(40, 42, 54);
 
-        // Center the content vertically
         ui.vertical_centered(|ui| {
-            ui.add_space(100.0);
+            ui.add_space(30.0);
             ui.heading(
                 egui::RichText::new("TailChatter")
-                    .size(36.0)
+                    .size(48.0)
+                    .strong()
                     .color(theme.title),
             );
-            ui.add_space(15.0);
-            ui.label(egui::RichText::new("Enter your details to join").color(theme.muted));
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("Connect To Or Start A Server").color(theme.muted));
         });
 
-        ui.add_space(40.0);
+        ui.add_space(30.0);
 
-        // Form in a container
+        egui::Frame::default()
+            .fill(egui::Color32::TRANSPARENT)
+            .inner_margin(0.0)
+            .show(ui, |ui| {
+                let total_width = 200.0 * 2.0 + 10.0;
+                egui::Frame::default()
+                    .fill(egui::Color32::TRANSPARENT)
+                    .outer_margin(egui::Margin {
+                        left: (ui.available_width() - total_width) / 2.0,
+                        right: 0.0,
+                        top: 0.0,
+                        bottom: 0.0,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let btn = egui::Button::new(
+                                egui::RichText::new("Connect To Existing Server").size(16.0),
+                            )
+                            .min_size(egui::vec2(200.0, 40.0));
+                            if ui.add(btn).clicked() {
+                                self.login_tab = LoginTab::Connect;
+                            }
+
+                            ui.add_space(10.0);
+
+                            let btn = egui::Button::new(
+                                egui::RichText::new("Create A Server").size(16.0),
+                            )
+                            .min_size(egui::vec2(200.0, 40.0));
+                            if ui.add(btn).clicked() {
+                                self.login_tab = LoginTab::Server;
+                            }
+                        });
+                    });
+            });
+
+        ui.add_space(20.0);
+
         egui::Frame::default()
             .fill(input_bg)
             .inner_margin(30.0)
             .rounding(10.0)
-            .show(ui, |ui| {
-                // Stack inputs vertically, centered
-                ui.vertical_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new("Your Handle:")
-                            .color(theme.muted)
-                            .size(14.0),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.nick)
-                            .desired_width(280.0)
-                            .text_color(theme.text)
-                            .desired_rows(1)
-                            .margin(egui::vec2(12.0, 10.0)),
-                    );
-
-                    ui.add_space(15.0);
-
-                    ui.label(
-                        egui::RichText::new("Server IP:")
-                            .color(theme.muted)
-                            .size(14.0),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.server_ip)
-                            .desired_width(280.0)
-                            .text_color(theme.text)
-                            .desired_rows(1)
-                            .margin(egui::vec2(12.0, 10.0)),
-                    );
-
-                    ui.add_space(15.0);
-
-                    ui.label(egui::RichText::new("Port:").color(theme.muted).size(14.0));
-                    ui.add(egui::DragValue::new(&mut self.server_port).range(1..=65535));
-
-                    ui.add_space(15.0);
-
-                    ui.checkbox(
-                        &mut self.start_server,
-                        egui::RichText::new("Start local server").color(theme.muted),
-                    );
-                });
+            .show(ui, |ui| match self.login_tab {
+                LoginTab::Connect => self.connect_tab_ui(ui, theme),
+                LoginTab::Server => self.server_tab_ui(ui, theme),
             });
 
         ui.add_space(30.0);
@@ -226,6 +241,96 @@ impl ChatApp {
             });
             ui.add_space(15.0);
         }
+    }
+
+    fn connect_tab_ui(&mut self, ui: &mut egui::Ui, theme: &Theme) {
+        ui.vertical_centered(|ui| {
+            ui.label(
+                egui::RichText::new("Connect To An Existing Server")
+                    .size(22.0)
+                    .color(theme.title),
+            );
+            ui.add_space(15.0);
+
+            ui.label(
+                egui::RichText::new("Your Handle:")
+                    .color(theme.muted)
+                    .size(16.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.nick)
+                    .desired_width(280.0)
+                    .text_color(theme.text)
+                    .desired_rows(1)
+                    .margin(egui::vec2(12.0, 10.0)),
+            );
+
+            ui.add_space(15.0);
+
+            if self.server_started {
+                ui.label(
+                    egui::RichText::new("Server IP:")
+                        .color(theme.muted)
+                        .size(16.0),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.server_ip)
+                        .desired_width(280.0)
+                        .text_color(theme.muted)
+                        .desired_rows(1)
+                        .margin(egui::vec2(12.0, 10.0)),
+                );
+
+                ui.add_space(15.0);
+
+                ui.label(egui::RichText::new("Port:").color(theme.muted).size(16.0));
+                let port_str = self.local_server_port.to_string();
+                let mut port_string = port_str;
+                ui.add(
+                    egui::TextEdit::singleline(&mut port_string)
+                        .desired_width(280.0)
+                        .text_color(theme.muted)
+                        .desired_rows(1)
+                        .margin(egui::vec2(12.0, 10.0)),
+                );
+                if let Ok(port) = port_string.parse() {
+                    self.local_server_port = port;
+                }
+            } else {
+                ui.label(
+                    egui::RichText::new("Server IP:")
+                        .color(theme.muted)
+                        .size(16.0),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.server_ip)
+                        .desired_width(280.0)
+                        .text_color(theme.text)
+                        .desired_rows(1)
+                        .margin(egui::vec2(12.0, 10.0)),
+                );
+
+                ui.add_space(15.0);
+
+                ui.label(egui::RichText::new("Port:").color(theme.muted).size(16.0));
+                let port_str = self.server_port.to_string();
+                let mut port_string = port_str;
+                ui.add(
+                    egui::TextEdit::singleline(&mut port_string)
+                        .desired_width(280.0)
+                        .text_color(theme.text)
+                        .desired_rows(1)
+                        .margin(egui::vec2(12.0, 10.0)),
+                );
+                if let Ok(port) = port_string.parse() {
+                    self.server_port = port;
+                }
+            }
+        });
+
+        ui.add_space(30.0);
+
+        ui.add_space(30.0);
 
         let _button_id = egui::Id::new("join_button");
 
@@ -246,22 +351,19 @@ impl ChatApp {
                     .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
                 {
                     self.error_message = "Only letters, numbers, _ and - allowed".to_string();
-                } else if self.server_ip.is_empty() && !self.start_server {
-                    self.error_message = "Enter server IP or start local server".to_string();
+                } else if self.server_ip.is_empty() {
+                    self.error_message = "Enter server IP".to_string();
                 } else {
-                    // Start connection in background thread
                     let ip = self.server_ip.clone();
                     let port = self.server_port;
                     let nick = self.nick.clone();
                     let conn_msg = format!("Connecting to {}:{}...", ip, port);
 
-                    // Create channels for communication
                     let (tx, rx) = mpsc::channel();
                     let outgoing = Arc::new(Mutex::new(VecDeque::new()));
                     self.msg_receiver = Some(rx);
                     self.outgoing_queue = Some(Arc::clone(&outgoing));
 
-                    // Spawn background thread for TCP
                     thread::spawn(move || {
                         if let Err(e) = run_tcp_client_threaded(&ip, port, &nick, tx, outgoing) {
                             eprintln!("Connection error: {}", e);
@@ -270,7 +372,14 @@ impl ChatApp {
 
                     self.mode = ChatMode::Chat;
                     self.was_logged_out = false;
-                    save_state(&self.nick, &self.server_ip, self.server_port, false, &self.messages);
+                    save_state(
+                        &self.nick,
+                        &self.server_ip,
+                        self.server_port,
+                        false,
+                        &self.messages,
+                        false,
+                    );
                     self.online_users.push(self.nick.clone());
                     self.messages
                         .push(("System".to_string(), conn_msg, now_hms()));
@@ -279,18 +388,210 @@ impl ChatApp {
         });
     }
 
+    fn server_tab_ui(&mut self, ui: &mut egui::Ui, theme: &Theme) {
+        let server_running = self.server_started && self.mode == ChatMode::Login;
+        
+        ui.vertical_centered(|ui| {
+            ui.label(
+                egui::RichText::new("Start Your Own Server")
+                    .size(22.0)
+                    .color(theme.title),
+            );
+            ui.add_space(15.0);
+
+            ui.label(
+                egui::RichText::new("Your Handle:")
+                    .color(theme.muted)
+                    .size(16.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.nick)
+                    .desired_width(280.0)
+                    .text_color(theme.text)
+                    .desired_rows(1)
+                    .margin(egui::vec2(12.0, 10.0)),
+            );
+
+            ui.add_space(15.0);
+
+            ui.label(
+                egui::RichText::new("Server IP:")
+                    .color(theme.muted)
+                    .size(16.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.server_ip)
+                    .desired_width(280.0)
+                    .text_color(if server_running { theme.muted } else { theme.text })
+                    .desired_rows(1)
+                    .margin(egui::vec2(12.0, 10.0)),
+            );
+
+            ui.add_space(15.0);
+
+            ui.label(
+                egui::RichText::new("Server Port:")
+                    .color(theme.muted)
+                    .size(16.0),
+            );
+            let port_str = self.local_server_port.to_string();
+            let mut port_string = port_str;
+            ui.add(
+                egui::TextEdit::singleline(&mut port_string)
+                    .desired_width(280.0)
+                    .text_color(if server_running { theme.muted } else { theme.text })
+                    .desired_rows(1)
+                    .margin(egui::vec2(12.0, 10.0)),
+            );
+            if let Ok(port) = port_string.parse() {
+                self.local_server_port = port;
+            }
+
+            if self.server_started {
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new("Server is running").color(theme.status));
+            }
+        });
+
+        ui.add_space(30.0);
+
+        ui.vertical_centered(|ui| {
+            let btn_text = if self.server_started && self.mode == ChatMode::Login {
+                "Rejoin Chat"
+            } else if self.server_started {
+                "Stop Server"
+            } else {
+                "Start Server & Join Chat"
+            };
+            let button = egui::Button::new(egui::RichText::new(btn_text).size(20.0))
+                .min_size(egui::vec2(200.0, 45.0));
+            let button = ui.add(button);
+            if button.clicked() {
+                self.error_message.clear();
+
+                if self.server_started && self.mode == ChatMode::Login {
+                    if self.nick.len() < 2 || self.nick.len() > 24 {
+                        self.error_message = "Nick must be 2-24 characters".to_string();
+                    } else if !self.nick.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                        self.error_message = "Only letters, numbers, _ and - allowed".to_string();
+                    } else {
+                        let ip = self.server_ip.clone();
+                        let port = self.local_server_port;
+                        let nick = self.nick.clone();
+                        let conn_msg = format!("Reconnecting to local server on port {}...", port);
+
+                        let (tx, rx) = mpsc::channel();
+                        let outgoing = Arc::new(Mutex::new(VecDeque::new()));
+                        self.msg_receiver = Some(rx);
+                        self.outgoing_queue = Some(Arc::clone(&outgoing));
+
+                        thread::spawn(move || {
+                            if let Err(e) = run_tcp_client_threaded(&ip, port, &nick, tx, outgoing) {
+                                eprintln!("Connection error: {}", e);
+                            }
+                        });
+
+                        self.mode = ChatMode::Chat;
+                        self.was_logged_out = false;
+                        save_state(&self.nick, &self.server_ip, self.local_server_port, false, &self.messages, true);
+                        self.online_users.push(self.nick.clone());
+                        self.messages
+                            .push(("System".to_string(), conn_msg, now_hms()));
+                    }
+                } else if self.server_started {
+                    self.server_started = false;
+                    self.server_started = false;
+                } else {
+                    if self.nick.len() < 2 || self.nick.len() > 24 {
+                        self.error_message = "Nick must be 2-24 characters".to_string();
+                    } else if !self
+                        .nick
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                    {
+                        self.error_message = "Only letters, numbers, _ and - allowed".to_string();
+                    } else if self.server_ip.is_empty() {
+                        self.error_message =
+                            "Enter server IP (use 127.0.0.1 for local)".to_string();
+                    } else {
+                        let port = self.local_server_port;
+                        if let Err(_e) = thread::spawn(move || {
+                            if let Err(e) = run_server_threaded(port) {
+                                eprintln!("Server error: {}", e);
+                            }
+                        })
+                        .join()
+                        {
+                            self.error_message = "Failed to start server".to_string();
+                        } else {
+                            self.server_started = true;
+
+                            let ip = self.server_ip.clone();
+                            let port = self.local_server_port;
+                            let nick = self.nick.clone();
+                            let conn_msg = format!("Starting local server on port {}...", port);
+
+                            let (tx, rx) = mpsc::channel();
+                            let outgoing = Arc::new(Mutex::new(VecDeque::new()));
+                            self.msg_receiver = Some(rx);
+                            self.outgoing_queue = Some(Arc::clone(&outgoing));
+
+                            thread::spawn(move || {
+                                if let Err(e) =
+                                    run_tcp_client_threaded(&ip, port, &nick, tx, outgoing)
+                                {
+                                    eprintln!("Connection error: {}", e);
+                                }
+                            });
+
+                            self.mode = ChatMode::Chat;
+                            self.was_logged_out = false;
+                            save_state(
+                                &self.nick,
+                                &self.server_ip,
+                                self.local_server_port,
+                                false,
+                                &self.messages,
+                                true,
+                            );
+                            self.online_users.push(self.nick.clone());
+                            self.messages
+                                .push(("System".to_string(), conn_msg, now_hms()));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     fn chat_ui(&mut self, ui: &mut egui::Ui, theme: &Theme, ctx: &egui::Context) {
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(egui::RichText::new("TailChatter").color(theme.title));
+                ui.heading(
+                    egui::RichText::new("TailChatter")
+                        .size(20.0)
+                        .color(theme.title),
+                );
                 ui.separator();
-                ui.label(egui::RichText::new(&self.room_name).color(theme.muted));
+                ui.label(
+                    egui::RichText::new(&self.room_name)
+                        .size(16.0)
+                        .color(theme.muted),
+                );
                 ui.separator();
                 let count = self.online_users.len();
-                ui.label(egui::RichText::new(format!("{count} online")).color(theme.status));
+                ui.label(
+                    egui::RichText::new(format!("{count} online"))
+                        .size(16.0)
+                        .color(theme.status),
+                );
                 ui.separator();
-                ui.label(egui::RichText::new(&format!("Logged in as: {}", self.nick)).color(theme.self_name));
-                if ui.small_button("Logout").clicked() {
+                ui.label(
+                    egui::RichText::new(&format!("Logged in as: {}", self.nick))
+                        .size(16.0)
+                        .color(theme.self_name),
+                );
+                if ui.button("Logout").clicked() {
                     self.logout();
                 }
             });
@@ -299,7 +600,7 @@ impl ChatApp {
         egui::SidePanel::left("sidebar")
             .default_width(150.0)
             .show(ctx, |ui| {
-                ui.heading(egui::RichText::new("Users").size(14.0).color(theme.muted));
+                ui.heading(egui::RichText::new("Users").size(16.0).color(theme.muted));
                 ui.separator();
                 for user in &self.online_users {
                     let color = if user == &self.nick {
@@ -307,7 +608,7 @@ impl ChatApp {
                     } else {
                         theme.color_for_name(user)
                     };
-                    ui.label(egui::RichText::new(user).color(color));
+                    ui.label(egui::RichText::new(user).size(16.0).color(color));
                 }
             });
 
@@ -327,10 +628,10 @@ impl ChatApp {
                             theme.color_for_name(from)
                         };
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(from).color(color).strong());
-                            ui.label(egui::RichText::new(body).color(theme.text));
+                            ui.label(egui::RichText::new(from).size(16.0).color(color).strong());
+                            ui.label(egui::RichText::new(body).size(16.0).color(theme.text));
                         });
-                        ui.add_space(3.0);
+                        ui.add_space(5.0);
                     }
                 });
         });
@@ -436,21 +737,63 @@ impl Theme {
     }
 }
 
-fn load_state() -> (ChatMode, String, String, u16, bool, Vec<(String, String, String)>) {
+fn load_state() -> (
+    ChatMode,
+    String,
+    String,
+    u16,
+    bool,
+    Vec<(String, String, String)>,
+    bool,
+) {
     let path = state_file_path();
     if path.exists() {
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(state) = serde_json::from_str::<PersistedState>(&content) {
                 if !state.was_logged_out && !state.nick.is_empty() {
-                    return (ChatMode::Chat, state.nick, state.server_ip, state.server_port, false, state.messages);
+                    return (
+                        ChatMode::Chat,
+                        state.nick,
+                        state.server_ip,
+                        state.server_port,
+                        false,
+                        state.messages,
+                        state.server_started,
+                    );
+                }
+                if state.server_started && !state.nick.is_empty() {
+                    return (
+                        ChatMode::Login,
+                        state.nick,
+                        state.server_ip,
+                        state.server_port,
+                        false,
+                        Vec::new(),
+                        true,
+                    );
                 }
             }
         }
     }
-    (ChatMode::Login, String::new(), String::new(), DEFAULT_PORT, false, Vec::new())
+    (
+        ChatMode::Login,
+        String::new(),
+        String::new(),
+        DEFAULT_PORT,
+        false,
+        Vec::new(),
+        false,
+    )
 }
 
-fn save_state(nick: &str, server_ip: &str, server_port: u16, was_logged_out: bool, messages: &[(String, String, String)]) {
+fn save_state(
+    nick: &str,
+    server_ip: &str,
+    server_port: u16,
+    was_logged_out: bool,
+    messages: &[(String, String, String)],
+    server_started: bool,
+) {
     let path = state_file_path();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -461,6 +804,7 @@ fn save_state(nick: &str, server_ip: &str, server_port: u16, was_logged_out: boo
         server_port,
         was_logged_out,
         messages: messages.to_vec(),
+        server_started,
     };
     if let Ok(json) = serde_json::to_string_pretty(&state) {
         let _ = fs::write(&path, json);
@@ -516,6 +860,24 @@ fn run_tcp_client_threaded(
             }
         }
 
+        Ok(())
+    })
+}
+
+fn run_server_threaded(port: u16) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        if let Err(e) = server::start_server(port).await {
+            eprintln!("Failed to start server: {}", e);
+        } else {
+            println!("Server started on port {}", port);
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+            }
+        }
         Ok(())
     })
 }
