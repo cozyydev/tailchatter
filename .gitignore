@@ -1,0 +1,11 @@
+# Build artifacts
+/target/
+tailchatter-egui/target/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
