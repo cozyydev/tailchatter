@@ -131,6 +131,8 @@ impl eframe::App for ChatApp {
                             }
                         }
                     }
+                } else if body.contains("Enter your handle") {
+                    // Skip - login screen handles this
                 } else if from == self.nick && (body.contains("has joined") || body.contains("has left")) {
                     // Don't show self joining/leaving
                 } else if is_join_leave {
@@ -225,7 +227,7 @@ impl ChatApp {
             ui.add_space(15.0);
         }
 
-        let button_id = egui::Id::new("join_button");
+        let _button_id = egui::Id::new("join_button");
 
         ui.vertical_centered(|ui| {
             let button = egui::Button::new(egui::RichText::new("Join Chat").size(20.0))
