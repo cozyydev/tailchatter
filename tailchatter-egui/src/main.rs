@@ -147,8 +147,10 @@ impl eframe::App for ChatApp {
                             }
                         }
                     }
-                } else if body.contains("Enter your handle") {
+                } else if body.to_lowercase().contains("enter your handle") {
                     // Skip - login screen handles this
+                } else if body.contains("Welcome") && body.contains("online") {
+                    self.messages.push((from, body, now_hms()));
                 } else if from == self.nick
                     && (body.contains("has joined") || body.contains("has left"))
                 {
@@ -515,49 +517,45 @@ impl ChatApp {
                             "Enter server IP (use 127.0.0.1 for local)".to_string();
                     } else {
                         let port = self.local_server_port;
-                        if let Err(_e) = thread::spawn(move || {
+                        let _ = thread::spawn(move || {
                             if let Err(e) = run_server_threaded(port) {
                                 eprintln!("Server error: {}", e);
                             }
-                        })
-                        .join()
-                        {
-                            self.error_message = "Failed to start server".to_string();
-                        } else {
-                            self.server_started = true;
+                        });
+                        thread::sleep(std::time::Duration::from_millis(100));
+                        self.server_started = true;
 
-                            let ip = self.server_ip.clone();
-                            let port = self.local_server_port;
-                            let nick = self.nick.clone();
-                            let conn_msg = format!("Starting local server on port {}...", port);
+                        let ip = self.server_ip.clone();
+                        let port = self.local_server_port;
+                        let nick = self.nick.clone();
+                        let conn_msg = format!("Starting local server on port {}...", port);
 
-                            let (tx, rx) = mpsc::channel();
-                            let outgoing = Arc::new(Mutex::new(VecDeque::new()));
-                            self.msg_receiver = Some(rx);
-                            self.outgoing_queue = Some(Arc::clone(&outgoing));
+                        let (tx, rx) = mpsc::channel();
+                        let outgoing = Arc::new(Mutex::new(VecDeque::new()));
+                        self.msg_receiver = Some(rx);
+                        self.outgoing_queue = Some(Arc::clone(&outgoing));
 
-                            thread::spawn(move || {
-                                if let Err(e) =
-                                    run_tcp_client_threaded(&ip, port, &nick, tx, outgoing)
-                                {
-                                    eprintln!("Connection error: {}", e);
-                                }
-                            });
+                        thread::spawn(move || {
+                            if let Err(e) =
+                                run_tcp_client_threaded(&ip, port, &nick, tx, outgoing)
+                            {
+                                eprintln!("Connection error: {}", e);
+                            }
+                        });
 
-                            self.mode = ChatMode::Chat;
-                            self.was_logged_out = false;
-                            save_state(
-                                &self.nick,
-                                &self.server_ip,
-                                self.local_server_port,
-                                false,
-                                &self.messages,
-                                true,
-                            );
-                            self.online_users.push(self.nick.clone());
-                            self.messages
-                                .push(("System".to_string(), conn_msg, now_hms()));
-                        }
+                        self.mode = ChatMode::Chat;
+                        self.was_logged_out = false;
+                        save_state(
+                            &self.nick,
+                            &self.server_ip,
+                            self.local_server_port,
+                            false,
+                            &self.messages,
+                            true,
+                        );
+                        self.online_users.push(self.nick.clone());
+                        self.messages
+                            .push(("System".to_string(), conn_msg, now_hms()));
                     }
                 }
             }
