@@ -4,14 +4,14 @@ A desktop chat application for Tailscale networks. Built with egui for a native 
 
 ## Prerequisites
 
-- **Linux**: Build from source (see below) or download from GitHub releases
-- **Windows**: Download the `.exe` from GitHub Actions artifacts
+- **Linux & macOS**: Build from source (see below)
+- **Windows**: Download the `.exe` from GitHub Releases
 
 ## Quick Start
 
 ### Run TailChatter
 
-#### Linux
+#### Linux & macOS
 
 ```bash
 git clone https://github.com/cozyydev/tailchatter.git
@@ -22,7 +22,7 @@ cargo build --release
 
 #### Windows
 
-1. Download the `tailchatter-windows-x64` artifact from GitHub Actions
+1. Download the `.exe` from [GitHub Releases](https://github.com/cozyydev/tailchatter/releases)
 2. Run the `.exe`
 
 ## Two Ways to Use
@@ -70,6 +70,7 @@ tailscale ip -4
 ```
 
 Use that IP when connecting clients.
+OR you can use the MagicDNS name from your Tailscale admin console.
 
 ## Usage
 
@@ -97,13 +98,9 @@ cargo build --release
 ./target/release/tailchatter
 ```
 
-### Windows (via GitHub Actions)
+### Windows
 
-The Windows build is automated via GitHub Actions:
-
-1. Go to your repository's Actions tab
-2. Run the "Build TailChatter for Windows" workflow
-3. Download the artifact `tailchatter-windows-x64`
+Download the `.exe` from [GitHub Releases](https://github.com/cozyydev/tailchatter/releases). The Windows build is automated via GitHub Actions - see the workflow if you want to build from source.
 
 ## Project Status
 
@@ -121,4 +118,3 @@ The Windows build is automated via GitHub Actions:
 ## License
 
 MIT
-
