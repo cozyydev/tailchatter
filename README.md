@@ -33,23 +33,23 @@ Use this when connecting to a server running on another node (e.g., your Tailsca
 
 1. Launch TailChatter
 2. Click **Connect To Existing Server** tab
-3. Enter your **Your Handle** (2-24 chars: letters, numbers, `_` or `-`)
-4. Enter the **Tailscale IP / MagicDNS name** of the server
+3. Enter your **Handle** (2-24 chars: letters, numbers, `_` or `-`)
+4. Enter the **Server IP** (Tailscale IP or MagicDNS name)
 5. Enter the **Port** (default: 42069)
 6. Click **Join Chat**
 
 ### Option 2: Start Your Own Server
 
-Start a server directly in the app - no separate server needed:
+Start a server directly in the app - no separate process needed:
 
 1. Launch TailChatter
 2. Click **Create A Server** tab
-3. Enter your **Your Handle**
-4. Enter **Tailscale IP / MagicDNS name** of the server
+3. Enter your **Handle**
+4. Enter **Server IP** (Tailscale IP or MagicDNS name)
 5. Enter **Server Port** (default: 42069)
 6. Click **Start Server & Join Chat**
 
-The server runs in the background. If you log out, the server keeps running so the rest of the crew can keep chatting - just click **Rejoin Chat** to reconnect.
+The server runs in the background. If you log out, the server keeps running so others can keep chatting - click **Rejoin Chat** to reconnect.
 
 ## Recommended Network Model
 
@@ -57,7 +57,7 @@ TailChatter is designed for private use over Tailscale.
 
 **Setup:**
 
-- Start the server on one machine in your Tailscale network (via the app or rustalk)
+- Start the server on one machine in your Tailscale network
 - Connect clients from other machines using their Tailscale IPs
 - No public internet exposure by default
 
@@ -69,16 +69,23 @@ On the server machine:
 tailscale ip -4
 ```
 
-Use that IP when connecting clients.
-OR you can use the MagicDNS name from your Tailscale admin console.
+Use that IP when connecting clients, or use the MagicDNS name from your Tailscale admin console.
 
 ## Usage
 
-### Sending Messages
+### Group Chat
 
 - Type your message in the input box at the bottom
-- Press **Enter** to send
-- Or click the **Send** button
+- Press **Enter** or click **Send**
+- Messages appear in the main chat area for all connected users
+
+### Direct Messages
+
+- Click any username in the **Users** sidebar to open a DM conversation
+- A new conversation appears in the **Conversations** list on the left
+- DMs are private between you and the recipient
+- Unread DM count shows next to the conversation name
+- Click a conversation to switch between Group Chat and DMs
 
 ### Online Users
 
@@ -86,11 +93,11 @@ The left sidebar shows all connected users. Your nickname is highlighted in cyan
 
 ### Logout
 
-Click the **Logout** button in the chat header. If you started a local server, it keeps running - click **Rejoin Chat** to reconnect.
+Click the **Logout** button in the sidebar. If you started a local server, it keeps running - click **Rejoin Chat** to reconnect.
 
 ## Building from Source
 
-### Linux
+### Linux & macOS
 
 ```bash
 cd tailchatter-egui
@@ -100,20 +107,40 @@ cargo build --release
 
 ### Windows
 
-Download the `.exe` from [GitHub Releases](https://github.com/cozyydev/tailchatter/releases). The Windows build is automated via GitHub Actions - see the workflow if you want to build from source.
+Download the `.exe` from [GitHub Releases](https://github.com/cozyydev/tailchatter/releases). The Windows build is automated via GitHub Actions.
 
-## Project Status
+## Project Structure
+
+```
+src/
+  main.rs              - Entry point, eframe::App impl
+  protocol.rs          - Shared types (ClientMsg, ServerMsg, ChatLine)
+  server/
+    mod.rs             - Server startup, TCP handler, formatting
+    state.rs           - ChatState, Session, ClientMode
+    handler.rs         - Message routing (identification, chat, DM)
+  client/
+    mod.rs             - TCP client connection
+    state.rs           - App state, message handling
+    ui/
+      mod.rs           - UI module declarations
+      theme.rs         - Dracula color theme
+      login.rs         - Login screen
+      chat.rs          - Chat screen (header, sidebar, messages, input)
+```
+
+## Features
 
 - Desktop GUI client (egui)
-- Built-in TCP server (start server directly in app)
+- Built-in TCP server (start directly in app)
 - Connect to existing servers or create your own
-- Real-time message display
-- Send messages via Enter or button click
+- Group chat with real-time messages
+- Private direct messages between users
+- Conversation list with unread counts
 - Online user list sidebar
 - Rejoin chat when server keeps running
 - Dracula-themed UI
-- Native window with title bar
-- Linux and Windows builds
+- Linux, macOS, and Windows support
 
 ## License
 
