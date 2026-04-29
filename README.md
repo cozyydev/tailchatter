@@ -93,41 +93,7 @@ The left sidebar shows all connected users. Your nickname is highlighted in cyan
 
 ### Logout
 
-Click the **Logout** button in the sidebar. If you started a local server, it keeps running - click **Rejoin Chat** to reconnect.
-
-## Building from Source
-
-### Linux & macOS
-
-```bash
-cd tailchatter-egui
-cargo build --release
-./target/release/tailchatter
-```
-
-### Windows
-
-Download the `.exe` from [GitHub Releases](https://github.com/cozyydev/tailchatter/releases). The Windows build is automated via GitHub Actions.
-
-## Project Structure
-
-```
-src/
-  main.rs              - Entry point, eframe::App impl
-  protocol.rs          - Shared types (ClientMsg, ServerMsg, ChatLine)
-  server/
-    mod.rs             - Server startup, TCP handler, formatting
-    state.rs           - ChatState, Session, ClientMode
-    handler.rs         - Message routing (identification, chat, DM)
-  client/
-    mod.rs             - TCP client connection
-    state.rs           - App state, message handling
-    ui/
-      mod.rs           - UI module declarations
-      theme.rs         - Dracula color theme
-      login.rs         - Login screen
-      chat.rs          - Chat screen (header, sidebar, messages, input)
-```
+Click the **Logout** button at the bottom in the sidebar. If you started a local server, it keeps running - click **Rejoin Chat** to reconnect.
 
 ## Features
 
