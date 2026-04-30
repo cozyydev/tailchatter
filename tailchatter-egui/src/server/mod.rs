@@ -2,16 +2,15 @@ pub mod handler;
 pub mod state;
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::protocol::ServerMsg;
-use state::{ChatState, ClientMode, Session, SessionId};
+use state::{ClientMode, Session, SessionId, StateHandle, spawn_state_actor};
 
 static NEXT_SESSION_ID: AtomicU32 = AtomicU32::new(1);
 
@@ -40,14 +39,16 @@ pub fn start(port: u16) -> Result<()> {
 
         rt.block_on(async {
             let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-            let state = Arc::new(Mutex::new(ChatState::new()));
+
+            // Spawn the state actor — no mutex needed
+            let state_handle = spawn_state_actor();
 
             loop {
                 match listener.accept().await {
                     Ok((stream, _)) => {
-                        let state = Arc::clone(&state);
+                        let handle = state_handle.clone();
                         let session_id = new_session_id();
-                        tokio::spawn(handle_client(stream, session_id, state));
+                        tokio::spawn(handle_client(stream, session_id, handle));
                     }
                     Err(err) => {
                         eprintln!("accept error: {err}");
@@ -61,21 +62,19 @@ pub fn start(port: u16) -> Result<()> {
 }
 
 /// Handle a single client connection lifecycle.
-async fn handle_client(stream: TcpStream, session_id: SessionId, state: Arc<Mutex<ChatState>>) {
+async fn handle_client(stream: TcpStream, session_id: SessionId, state: StateHandle) {
     let (reader, writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
-    {
-        let mut state = state.lock().await;
-        state.add_session(Session {
-            id: session_id,
-            nick: None,
-            mode: ClientMode::Plain,
-            tx,
-        });
-    }
+    // Register this session with the actor
+    state.add_session(Session {
+        id: session_id,
+        nick: None,
+        mode: ClientMode::Plain,
+        tx,
+    });
 
     // Writer task: forward channel messages to TCP socket
     let writer_task = tokio::spawn(async move {
@@ -103,7 +102,7 @@ async fn handle_client(stream: TcpStream, session_id: SessionId, state: Arc<Mute
         }
     }
 
-    handler::disconnect_session(session_id, &state).await;
+    state.remove_session(session_id);
     writer_task.abort();
 }
 

@@ -1,22 +1,23 @@
 pub mod state;
 pub mod ui;
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, mpsc::Sender};
+use std::sync::mpsc::Sender;
 
 use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::protocol::ClientMsg;
 
 /// Run the TCP client in a blocking thread with its own tokio runtime.
+/// Uses a proper async channel for outgoing messages (no polling).
 pub fn connect_threaded(
     ip: &str,
     port: u16,
     nick: &str,
     tx: Sender<String>,
-    outgoing: Arc<Mutex<VecDeque<String>>>,
+    mut outgoing_rx: UnboundedReceiver<String>,
 ) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -47,14 +48,17 @@ pub fn connect_threaded(
                         Ok(None) | Err(_) => break,
                     }
                 }
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {
-                    let mut queue = outgoing.lock().unwrap();
-                    while let Some(msg) = queue.pop_front() {
+                Some(msg) = outgoing_rx.recv() => {
+                    if writer.write_all(format!("{msg}\n").as_bytes()).await.is_err() {
+                        break;
+                    }
+                    // Drain any additional queued messages without blocking
+                    while let Ok(msg) = outgoing_rx.try_recv() {
                         if writer.write_all(format!("{msg}\n").as_bytes()).await.is_err() {
                             break;
                         }
-                        let _ = writer.flush().await;
                     }
+                    let _ = writer.flush().await;
                 }
             }
         }

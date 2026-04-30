@@ -11,7 +11,8 @@ impl ChatApp {
         self.chat_input(ui, ctx);
     }
 
-    fn chat_header(&self, theme: &Theme, ctx: &egui::Context) {
+    fn chat_header(&mut self, theme: &Theme, ctx: &egui::Context) {
+        let mut logout_clicked = false;
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading(
@@ -25,7 +26,11 @@ impl ChatApp {
                     Conversation::Group => self.room_name.clone(),
                     Conversation::Dm(partner) => format!("DM with {partner}"),
                 };
-                ui.label(egui::RichText::new(&conv_name).size(16.0).color(theme.muted));
+                ui.label(
+                    egui::RichText::new(&conv_name)
+                        .size(16.0)
+                        .color(theme.muted),
+                );
                 ui.separator();
 
                 let count = self.online_users.len();
@@ -41,8 +46,26 @@ impl ChatApp {
                         .size(16.0)
                         .color(theme.self_name),
                 );
+                ui.separator();
+
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Logout").size(16.0).color(theme.error),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::new(1.5, theme.error))
+                        .rounding(egui::Rounding::same(4.0)),
+                    )
+                    .clicked()
+                {
+                    logout_clicked = true;
+                }
             });
         });
+        if logout_clicked {
+            self.logout();
+        }
     }
 
     fn chat_sidebar(&mut self, theme: &Theme, ctx: &egui::Context) {
@@ -62,10 +85,7 @@ impl ChatApp {
                     };
 
                     if ui
-                        .selectable_label(
-                            false,
-                            egui::RichText::new(user).size(16.0).color(color),
-                        )
+                        .selectable_label(false, egui::RichText::new(user).size(16.0).color(color))
                         .clicked()
                         && user != &self.nick
                     {
@@ -91,7 +111,9 @@ impl ChatApp {
                 if ui
                     .selectable_label(
                         self.active_conversation == Conversation::Group,
-                        egui::RichText::new("Group Chat").size(16.0).color(theme.text),
+                        egui::RichText::new("Group Chat")
+                            .size(16.0)
+                            .color(theme.text),
                     )
                     .clicked()
                 {
@@ -123,12 +145,7 @@ impl ChatApp {
                     }
                 }
 
-                // Logout button at bottom
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    if ui.button("Logout").clicked() {
-                        self.logout();
-                    }
-                });
+
             });
     }
 
@@ -156,9 +173,7 @@ impl ChatApp {
                         };
 
                         ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(from).size(16.0).color(color).strong(),
-                            );
+                            ui.label(egui::RichText::new(from).size(16.0).color(color).strong());
                             ui.label(egui::RichText::new(body).size(16.0).color(theme.text));
                         });
                         ui.add_space(5.0);

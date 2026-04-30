@@ -1,6 +1,4 @@
-use std::collections::VecDeque;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
@@ -282,12 +280,12 @@ impl ChatApp {
         let nick = self.nick.clone();
 
         let (tx, rx) = mpsc::channel();
-        let outgoing = Arc::new(Mutex::new(VecDeque::new()));
+        let (outgoing_tx, outgoing_rx) = tokio::sync::mpsc::unbounded_channel();
         self.msg_receiver = Some(rx);
-        self.outgoing_queue = Some(Arc::clone(&outgoing));
+        self.outgoing_tx = Some(outgoing_tx);
 
         thread::spawn(move || {
-            if let Err(e) = crate::client::connect_threaded(&ip, port, &nick, tx, outgoing) {
+            if let Err(e) = crate::client::connect_threaded(&ip, port, &nick, tx, outgoing_rx) {
                 eprintln!("Connection error: {e}");
             }
         });

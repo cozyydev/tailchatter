@@ -1,7 +1,8 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::protocol::{ClientMsg, ServerMsg};
 
@@ -43,7 +44,7 @@ pub struct ChatApp {
     pub input_message: String,
     pub error_message: String,
     pub msg_receiver: Option<Receiver<String>>,
-    pub outgoing_queue: Option<Arc<Mutex<VecDeque<String>>>>,
+    pub outgoing_tx: Option<UnboundedSender<String>>,
     pub was_logged_out: bool,
     pub active_conversation: Conversation,
     pub dm_conversations: Vec<String>,
@@ -66,7 +67,7 @@ impl Default for ChatApp {
             input_message: String::new(),
             error_message: String::new(),
             msg_receiver: None,
-            outgoing_queue: None,
+            outgoing_tx: None,
             was_logged_out: false,
             active_conversation: Conversation::Group,
             dm_conversations: Vec::new(),
@@ -138,7 +139,7 @@ impl ChatApp {
     /// Fallback handler for plain text messages from server.
     pub fn handle_plain_text(&mut self, msg: &str) {
         if msg.starts_with("Online") {
-            if let Some(users_part) = msg.splitn(2, ':').nth(1) {
+            if let Some(users_part) = msg.split_once(':').map(|x| x.1) {
                 self.online_users = users_part
                     .split(',')
                     .map(|s| s.trim().to_string())
@@ -177,8 +178,8 @@ impl ChatApp {
             }
         };
 
-        if let Some(ref queue) = self.outgoing_queue {
-            queue.lock().unwrap().push_back(msg_json);
+        if let Some(ref tx) = self.outgoing_tx {
+            let _ = tx.send(msg_json);
         }
 
         // Add message locally for immediate display
@@ -203,11 +204,8 @@ impl ChatApp {
 
     /// Disconnect and return to login screen.
     pub fn logout(&mut self) {
-        if let Some(ref queue) = self.outgoing_queue {
-            queue
-                .lock()
-                .unwrap()
-                .push_back(serde_json::to_string(&ClientMsg::Quit).unwrap());
+        if let Some(ref tx) = self.outgoing_tx {
+            let _ = tx.send(serde_json::to_string(&ClientMsg::Quit).unwrap());
         }
         self.conversation_messages.clear();
         self.online_users.clear();
