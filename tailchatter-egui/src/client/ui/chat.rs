@@ -144,8 +144,6 @@ impl ChatApp {
                         self.unread_dms.remove(user);
                     }
                 }
-
-
             });
     }
 
@@ -195,10 +193,17 @@ impl ChatApp {
                         .desired_width(width)
                         .margin(egui::vec2(12.0, 10.0)),
                 );
-                if ui.button("Send").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new(egui::RichText::new("Send").size(16.0))
+                            .min_size(egui::vec2(50.0, 30.0)), // width 70, height 36
+                    )
+                    .clicked()
+                {
                     self.send_message();
                 }
             });
+            ui.add_space(8.0);
         });
 
         if enter_pressed && !self.input_message.is_empty() {
