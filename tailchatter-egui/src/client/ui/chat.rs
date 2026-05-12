@@ -7,8 +7,8 @@ impl ChatApp {
     pub fn chat_ui(&mut self, ui: &mut egui::Ui, theme: &Theme, ctx: &egui::Context) {
         self.chat_header(theme, ctx);
         self.chat_sidebar(theme, ctx);
-        self.chat_messages(theme, ctx);
         self.chat_input(ui, ctx);
+        self.chat_messages(theme, ctx);
     }
 
     fn chat_header(&mut self, theme: &Theme, ctx: &egui::Context) {
@@ -170,10 +170,30 @@ impl ChatApp {
                             theme.color_for_name(from)
                         };
 
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(from).size(16.0).color(color).strong());
-                            ui.label(egui::RichText::new(body).size(16.0).color(theme.text));
-                        });
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap = egui::text::TextWrapping {
+                            max_width: ui.available_width(),
+                            ..Default::default()
+                        };
+                        job.append(
+                            &format!("{}  ", from),
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(16.0),
+                                color,
+                                ..Default::default()
+                            },
+                        );
+                        job.append(
+                            body,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(16.0),
+                                color: theme.text,
+                                ..Default::default()
+                            },
+                        );
+                        ui.label(job);
                         ui.add_space(5.0);
                     }
                 });
