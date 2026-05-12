@@ -3,6 +3,45 @@ use eframe::egui;
 use crate::client::state::{ChatApp, Conversation};
 use crate::client::ui::theme::Theme;
 
+enum TextSegment<'a> {
+    Text(&'a str),
+    Url(String),
+}
+
+fn split_urls(text: &str) -> Vec<TextSegment<'_>> {
+    let mut segments = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        // Find the next URL starting with http:// or https://
+        let url_start = remaining
+            .find("https://")
+            .or_else(|| remaining.find("http://"));
+
+        match url_start {
+            Some(start) => {
+                // Add any text before the URL
+                if start > 0 {
+                    segments.push(TextSegment::Text(&remaining[..start]));
+                }
+                // Find the end of the URL (whitespace or end of string)
+                let url_part = &remaining[start..];
+                let end = url_part
+                    .find(|c: char| c.is_whitespace())
+                    .unwrap_or(url_part.len());
+                segments.push(TextSegment::Url(url_part[..end].to_string()));
+                remaining = &remaining[start + end..];
+            }
+            None => {
+                segments.push(TextSegment::Text(remaining));
+                break;
+            }
+        }
+    }
+
+    segments
+}
+
 impl ChatApp {
     pub fn chat_ui(&mut self, ui: &mut egui::Ui, theme: &Theme, ctx: &egui::Context) {
         self.chat_header(theme, ctx);
@@ -170,30 +209,32 @@ impl ChatApp {
                             theme.color_for_name(from)
                         };
 
-                        let mut job = egui::text::LayoutJob::default();
-                        job.wrap = egui::text::TextWrapping {
-                            max_width: ui.available_width(),
-                            ..Default::default()
-                        };
-                        job.append(
-                            &format!("{}  ", from),
-                            0.0,
-                            egui::TextFormat {
-                                font_id: egui::FontId::proportional(16.0),
-                                color,
-                                ..Default::default()
-                            },
-                        );
-                        job.append(
-                            body,
-                            0.0,
-                            egui::TextFormat {
-                                font_id: egui::FontId::proportional(16.0),
-                                color: theme.text,
-                                ..Default::default()
-                            },
-                        );
-                        ui.label(job);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            ui.label(
+                                egui::RichText::new(format!("{}  ", from))
+                                    .size(16.0)
+                                    .color(color)
+                                    .strong(),
+                            );
+                            for segment in split_urls(body) {
+                                match segment {
+                                    TextSegment::Text(text) => {
+                                        ui.label(
+                                            egui::RichText::new(text)
+                                                .size(16.0)
+                                                .color(theme.text),
+                                        );
+                                    }
+                                    TextSegment::Url(url) => {
+                                        ui.hyperlink_to(
+                                            egui::RichText::new(&url).size(16.0),
+                                            &url,
+                                        );
+                                    }
+                                }
+                            }
+                        });
                         ui.add_space(5.0);
                     }
                 });
